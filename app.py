@@ -31,20 +31,15 @@ BASE_DIR = "base_pop"
 
 st.markdown("""
 <style>
-/* Estilo principal */
 body, .stApp {
     background-color: #f9fdf9;
     color: #003A1B;
     font-family: 'Segoe UI', sans-serif;
 }
-
-/* Caixa da pergunta */
 div[data-baseweb="input"] > div {
     border: 2px solid #009739 !important;
     border-radius: 12px !important;
 }
-
-/* Botão */
 button[kind="primary"] {
     background-color: #009739 !important;
     color: white !important;
@@ -52,18 +47,8 @@ button[kind="primary"] {
     font-weight: 600 !important;
     padding: 10px 18px !important;
 }
-
-/* Título */
-h1, h2, h3 {
-    color: #006341;
-}
-
-/* Ajuste mobile */
-@media (max-width: 768px) {
-    .stApp {
-        padding: 10px !important;
-    }
-}
+h1, h2, h3 { color: #006341; }
+@media (max-width: 768px) { .stApp { padding: 10px !important; } }
 </style>
 """, unsafe_allow_html=True)
 
@@ -74,7 +59,10 @@ h1, h2, h3 {
 @st.cache_resource(show_spinner="📂 Carregando base de conhecimento...")
 def carregar_base():
     try:
-        embeddings = OpenAIEmbeddings(model="text-embedding-3-small", openai_api_key=OPENAI_API_KEY)
+        embeddings = OpenAIEmbeddings(
+            model="text-embedding-3-large",
+            openai_api_key=OPENAI_API_KEY
+        )
         base = FAISS.load_local(BASE_DIR, embeddings, allow_dangerous_deserialization=True)
         return base
     except Exception as e:
@@ -85,7 +73,10 @@ base = carregar_base()
 if not base:
     st.stop()
 
-retriever = base.as_retriever(search_kwargs={"k": 5})
+retriever = base.as_retriever(
+    search_type="similarity_score_threshold",
+    search_kwargs={"score_threshold": 0.45, "k": 8}
+)
 
 # ==============================================
 # CONFIGURAÇÃO DO MODELO
@@ -93,43 +84,38 @@ retriever = base.as_retriever(search_kwargs={"k": 5})
 
 modelo = ChatOpenAI(
     model="gpt-4o-mini",
-    temperature=0.1,
+    temperature=0.0,
+    max_tokens=700,
     openai_api_key=OPENAI_API_KEY
 )
 
 # ==============================================
-# PROMPT OTIMIZADO (versão operacional)
+# PROMPT OTIMIZADO
 # ==============================================
 
 prompt_template = """
 Você é o **Assistente Técnico Operacional Neoenergia**, especialista em **Segurança, Manutenção e Operações de Campo**.
-Sua missão é **orientar técnicos e eletricistas** com base **exclusivamente nos POPs oficiais** da empresa.
 
-### 🎯 Objetivo
-Fornecer respostas **precisas, curtas e seguras**, ajudando o colaborador a executar suas tarefas de forma correta, conforme as normas e boas práticas da Neoenergia.
+### 🎯 Missão
+Responder perguntas com base **exclusivamente** nos Procedimentos Operacionais Padronizados (POPs) fornecidos.
 
 ---
 
-### 🧩 Diretrizes obrigatórias
-1. **Baseie-se apenas nas informações dos POPs fornecidos abaixo.**
-2. Se a resposta **não estiver claramente descrita** nos POPs, responda exatamente:
+### ⚙️ Diretrizes principais
+1. **Base única:** use apenas os POPs abaixo como fonte de verdade.
+2. **Rigor técnico:** mantenha terminologia e normas da Neoenergia.
+3. **Nada de invenções:** se o POP não aborda o tema, diga:
    > “Não há orientação específica sobre isso nos POPs disponíveis.”
-3. **Não invente, nem complemente** com informações externas.
-4. Sempre cite o **POP e código** (ex: POP 12.4 - Segurança Elétrica) quando aplicável.
-5. Utilize **linguagem técnica, simples e objetiva**, adequada a eletricistas de campo.
-6. Estruture a resposta em formato de **passos numerados ou tópicos diretos**, por exemplo:
-   - Passo 1: Verifique...
-   - Passo 2: Utilize...
-   - Passo 3: Confirme...
-7. Destaque sempre:
-   - **EPIs obrigatórios**
-   - **Ferramentas específicas**
-   - **Riscos e medidas de segurança**
-   - **Etapas críticas da operação**
-8. Seja **curto e assertivo**: limite a resposta a no máximo **5 tópicos** ou **3 parágrafos curtos**.
-9. Se houver **contradição** entre POPs, destaque isso claramente:
-   > “Há divergência entre POPs sobre este tema. Recomenda-se confirmar com a área de Segurança do Trabalho.”
+4. **Formato recomendado:**
+   - Passo 1: ...
+   - Passo 2: ...
+   - Risco: ...
+   - EPI: ...
+5. **Sempre cite o código do POP** se disponível no contexto.
+6. **Priorize segurança e conformidade.**
+7. Limite-se a 5 tópicos ou 3 parágrafos curtos.
 
+---
 
 Contexto técnico (trechos dos POPs):
 {context}
@@ -137,7 +123,7 @@ Contexto técnico (trechos dos POPs):
 Pergunta do colaborador:
 {question}
 
-Responda de forma clara e segura:
+Responda de forma técnica, segura e fiel aos POPs:
 """
 
 prompt = PromptTemplate(
@@ -187,8 +173,13 @@ if buscar:
         with st.spinner("🔎 Buscando resposta nos POPs..."):
             resposta = qa_chain.invoke({"query": pergunta})
 
+            # Pós-processamento para respostas curtas
+            texto = resposta["result"].strip()
+            if "não há orientação específica" not in texto.lower() and len(texto.split()) < 10:
+                texto += "\n\n⚠️ Resposta curta demais — talvez o POP correspondente não trate diretamente desse tema."
+
             st.success("✅ Resposta Técnica:")
-            st.markdown(resposta["result"])
+            st.markdown(texto)
 
             fontes = resposta.get("source_documents", [])
             if fontes:
