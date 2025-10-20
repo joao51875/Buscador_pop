@@ -6,8 +6,6 @@ from langchain.prompts import PromptTemplate
 from dotenv import load_dotenv
 import os
 
-openai.proxy = None
-
 # ==============================================
 # CONFIGURAÇÕES INICIAIS
 # ==============================================
